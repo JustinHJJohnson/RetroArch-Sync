@@ -13,7 +13,10 @@ class Save:
         device: name of the device the save came from.\n
         lastModified: when the file was last editted, stored as time since epoch.\n
     """
-    def __init__(self, device, lastModified):
+    device: str
+    lastModified: float
+
+    def __init__(self, device: str, lastModified: float):
         self.device = device
         self.lastModified = lastModified
 
@@ -32,20 +35,28 @@ class Server:
         username: username for authentication, defaults to None.\n
         password: password for authentication, defaults to None.\n
     """
+    name: str
+    hostname: str
+    port: int
+    path: str
+    username: str
+    password: str
+    connection: ftplib.FTP
 
-    def __init__(self, name, hostname, port, path, username=None, password=None):
+    def __init__(self, name: str, hostname: str, port: int, path: str, username: str=None, password: str=None):
         self.name = name
         self.hostname = hostname
         self.port = port
         self.username = username
         self.password = password
         self.path = path
+        self.connection = None
 
-def error(string):
+def error(string: str):
     """Print a string with a red background"""
     print(Fore.RED + string + Style.RESET_ALL)
 
-def deleteFolder(path):
+def deleteFolder(path: Path):
     """Delete a non-empty folder"""
     for file in path.iterdir():
         fileToDelete = path / file
@@ -55,7 +66,7 @@ def deleteFolder(path):
             fileToDelete.unlink()
     path.rmdir()
 
-def ftpConnect(ftp, server):
+def ftpConnect(ftp: ftplib.FTP, server: Server) -> bool:
     """Connect to a ftp server"""
     try: 
         ftp.connect(server.hostname, server.port)
@@ -80,7 +91,7 @@ def ftpConnect(ftp, server):
 devices = [
     Server(
         "Switch",
-        "192.168.0.58",
+        "192.168.0.54",
         5000,
         "retroarch/cores/savefiles/",
         "justinj0",
@@ -88,16 +99,10 @@ devices = [
     ),
     Server(
         "Phone",
-        "192.168.0.49",
+        "192.168.0.53",
         12345,
         "RetroArch/savefiles/"
-    ),
-    Server(
-        "PC",
-        "192.168.0.16",
-        80,
-        "/"
-    ),
+    )
 ]
 
 # A set of unique saves
@@ -157,7 +162,9 @@ for server in devices:
             # Set the modified time to be the same as the server
             utime(downloadLocation, (time.timestamp(), time.timestamp()))
             print(f"Downloaded {name} ~ {time}")
-        ftp.close()
+        #ftp.close()
+        # Store to connection in the server object to save a reconnect later
+        server.connection = ftp
 
 # Create folder to store backup of the latest saves
 (backupFolder / 'Latest Saves').mkdir()
@@ -165,12 +172,12 @@ for server in devices:
 for save in saves:
     currentSaves = []
     for device in devices:
-        if ((backupFolder / device.name / save).is_file()):
+        if ((backupFolder/device.name/save).is_file()):
             currentSaves.append(
                 Save(
                     device.name,
                     #os.path.getmtime(f"{backupFolder}\\{device.name}\\{save}")
-                    path.getmtime(Path(f"{backupFolder} / {device.name} / {save}"))
+                    path.getmtime(Path(f"{backupFolder}/{device.name}/{save}"))
                 )
             )
     # Sort list based on modified time
@@ -184,16 +191,10 @@ for save in saves:
 print("\n\n~~~~~~~~ Uploading saves back to devices ~~~~~~~~")
 # Upload the latest saves to the devices
 for server in devices:
-    print(f"\n~~~~~~~~ Connecting to {server.name} ~~~~~~~~")
-    ftp = ftplib.FTP(timeout=timeout)
-    if (ftpConnect(ftp, server)):
-        try:
-            ftp.cwd(server.path)
-        except ftplib.error_perm:
-            error(f"Could not move to {server.path}, check path and type of slash used")
-            continue
-        for save in saveFolder.iterdir():
-            saveLocation = saveFolder / save.name
-            # Upload the save to the device
-            ftp.storbinary(f"STOR {save.name}", open(saveLocation, "rb"))
+    print(f"\n~~~~~~~~ Uploading to {server.name} ~~~~~~~~")
+    ftp = server.connection
+    for save in saveFolder.iterdir():
+        saveLocation = saveFolder / save.name
+        # Upload the save to the device
+        ftp.storbinary(f"STOR {save.name}", open(saveLocation, "rb"))
     ftp.close
